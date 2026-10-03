@@ -4,12 +4,7 @@ Die Anmeldung erfolgt mit lokalen Konten oder mit `ad:<Benutzername>` über LDAP
 
 ## Erstinbetriebnahme
 
-Vor dem ersten Produktivstart die verschlüsselnde Anwendungsschlüsseldatei und eine lokale Administration erzeugen. Passwörter werden interaktiv abgefragt und nicht als Kommandozeilenparameter übergeben:
-
-```powershell
-python -m app.manage key --file config/secrets/encryption.key
-python -m app.manage user --file config/secrets/users.json --name notfall-admin --role admin
-```
+Vor dem ersten Produktivstart die Anwendungsschlüsseldatei und eine lokale Administration mit dem fertigen Image `ghcr.io/bartelluis/unibatch:0.1.1` erzeugen. Die [Docker-Bootstrap-Anleitung](../README.md#produktivbetrieb-im-internen-netz) enthält die vollständigen PowerShell-/Linux-Befehle und die erforderlichen Rechte für Container-UID/GID 10001:10001. Sie erstellt `secrets/encryption_key` und `secrets/users.json` ohne Python-Installation auf dem Betriebshost. Passwörter werden interaktiv abgefragt und nicht als Kommandozeilenparameter übergeben.
 
 `USERS_FILE` verweist im Container auf die bereitgestellte Kontodatei. Die Datei enthält scrypt-Passworthashes, Rollen und einen Server-Bereich. Sie wird genau einmal in die persistente Datenbank übernommen. Die Anwendung startet im Produktivbetrieb nur, wenn eine aktive lokale Rolle mit `users.manage` und `roles.manage` und dem globalen Bereich `['*']` vorhanden ist. Diese Kontrolle gilt auch bei späteren Neustarts. Zwei getrennte lokale Administrationskonten einrichten und deren Zugangsdaten nach dem behördlichen Verfahren hinterlegen.
 

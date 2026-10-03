@@ -1,0 +1,513 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to verify and publish
+        required: true
+        type: choice
+        default: v0.1.1
+        options:
+          - v0.1.1
+
+permissions:
+  contents: read
+
+# Publication must finish or fail visibly; another run of the same version waits.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    name: Verify the tagged source and the exact release image
+    if: ${{ github.repository == 'BartelLuis/UniBatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      image_id: ${{ steps.export.outputs.image_id }}
+      artifact_id: ${{ steps.image-artifact.outputs.artifact-id }}
+    env:
+      DEMO_PORT: "18080"
+      UNIFI_BROWSER_URL: http://localhost:18080
+      COMPOSE_PROJECT_NAME: unifi-release-ci
+      DOCKER_BUILD_SUMMARY: "false"
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Validate the explicit stable release tag
+        id: release
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          event = os.environ["GITHUB_EVENT_NAME"]
+          if event == "workflow_dispatch":
+              tag = os.environ["INPUT_TAG"]
+              if tag != "v0.1.1":
+                  raise SystemExit("Manual publication supports the explicit v0.1.1 release only.")
+          elif event == "push" and os.environ["GITHUB_REF_TYPE"] == "tag":
+              tag = os.environ["GITHUB_REF_NAME"]
+          else:
+              raise SystemExit("A release requires a tag push or an explicit manual release.")
+          if not re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag):
+              raise SystemExit("Release tags must use stable SemVer, for example v0.1.1.")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"tag={tag}\nversion={tag[1:]}\n")
+          PY
+
+      - name: Check out the existing release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Pin the tested source commit and require release notes
+        id: source
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          from app import __version__
+
+          revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          if not re.fullmatch(r"[0-9a-f]{40}", revision):
+              raise SystemExit("The source commit is not a full Git SHA.")
+          if os.environ["GITHUB_EVENT_NAME"] == "push" and revision != os.environ["GITHUB_SHA"]:
+              raise SystemExit("The release tag moved after the workflow was triggered.")
+          if __version__ != os.environ["RELEASE_TAG"][1:]:
+              raise SystemExit("The application version must match the release tag.")
+          notes = Path("docs/releases") / (os.environ["RELEASE_TAG"] + ".md")
+          if not notes.is_file() or not notes.read_text(encoding="utf-8").strip():
+              raise SystemExit("The tagged source must contain nonempty release notes.")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"source_sha={revision}\n")
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements*.txt
+            requirements*.lock
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Verify dependency pins and install hash-locked test dependencies
+        run: |
+          python tools/check_requirements.py
+          python -m pip install --require-hashes -r requirements-dev.lock
+          python -m pip check
+          python -m playwright install --with-deps chromium
+
+      - name: Check JavaScript and Compose configuration
+        run: |
+          node --check app/static/app.js
+          node --check app/static/dialog.js
+          docker compose -f compose.yaml config --quiet
+          docker compose -f compose.yaml -f compose.ldap.yaml config --quiet
+          docker compose -f compose.yaml -f compose.build.yaml config --quiet
+          docker compose -f compose.demo.yaml -f .github/compose.ci.yaml config --quiet
+
+      - name: Run all backend tests, including the 1,200-site rollout
+        run: python -m pytest tests -q --junitxml=artifacts/unit-tests.xml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build and load the versioned amd64 release image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          tags: |
+            unifi-batch:ci
+            ghcr.io/bartelluis/unibatch:${{ steps.release.outputs.version }}
+            ghcr.io/bartelluis/unibatch:sha-${{ steps.source.outputs.source_sha }}
+          build-args: |
+            VERSION=${{ steps.release.outputs.version }}
+            REVISION=${{ steps.source.outputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/BartelLuis/UniBatch
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.source.outputs.source_sha }}
+          load: true
+          push: false
+          cache-from: type=gha,scope=release-amd64
+          cache-to: type=gha,scope=release-amd64,mode=max
+
+      - name: Start the release image on a fresh disposable demo volume
+        run: |
+          docker compose -f compose.demo.yaml -f .github/compose.ci.yaml down --volumes --remove-orphans
+          docker compose -f compose.demo.yaml -f .github/compose.ci.yaml up --no-build --detach --wait --wait-timeout 120
+
+      - name: Exercise WLAN, VLAN, permissions and approvals in the browser
+        run: python tests/browser_smoke.py
+
+      - name: Exercise RADIUS CRUD and recovery in the browser
+        run: python tests/browser_radius_smoke.py
+
+      - name: Export exactly the tested image with its final registry tags
+        id: export
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          python - <<'PY'
+          import gzip
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          revision = os.environ["SOURCE_SHA"]
+          image = f"ghcr.io/bartelluis/unibatch:{version}"
+          sha_image = f"ghcr.io/bartelluis/unibatch:sha-{revision}"
+          info = json.loads(subprocess.check_output(["docker", "image", "inspect", image], text=True))[0]
+          ci = json.loads(subprocess.check_output(["docker", "image", "inspect", "unifi-batch:ci"], text=True))[0]
+          if info["Id"] != ci["Id"] or info["Os"] != "linux" or info["Architecture"] != "amd64":
+              raise SystemExit("The export must be the exact tested linux/amd64 image.")
+          labels = info["Config"].get("Labels") or {}
+          expected = {"org.opencontainers.image.version": version,
+                      "org.opencontainers.image.revision": revision,
+                      "org.opencontainers.image.source": "https://github.com/BartelLuis/UniBatch"}
+          if any(labels.get(key) != value for key, value in expected.items()):
+              raise SystemExit("The tested image has incorrect release labels.")
+          subprocess.run(["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
+                          "--security-opt", "no-new-privileges", "--entrypoint", "python", image, "-c",
+                          "import sys; from app import __version__; sys.exit(__version__ != sys.argv[1])",
+                          version], check=True)
+          destination = Path("artifacts/release")
+          destination.mkdir(parents=True, exist_ok=True)
+          raw = destination / f"unibatch-{version}-linux-amd64.tar"
+          archive = raw.with_suffix(".tar.gz")
+          subprocess.run(["docker", "save", "--output", str(raw), image, sha_image], check=True)
+          with raw.open("rb") as source, archive.open("wb") as output:
+              with gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as compressed:
+                  shutil.copyfileobj(source, compressed)
+          raw.unlink()
+          with archive.open("rb") as source:
+              digest = hashlib.file_digest(source, "sha256").hexdigest()
+          archive.with_suffix(archive.suffix + ".sha256").write_text(
+              f"{digest}  {archive.name}\n", encoding="utf-8")
+          metadata = {"schemaVersion": 1, "tag": os.environ["RELEASE_TAG"], "version": version,
+                      "sourceCommit": revision, "platform": "linux/amd64", "image": image,
+                      "commitImage": sha_image, "imageId": info["Id"],
+                      "archive": archive.name, "archiveSha256": digest}
+          (destination / "release-metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"image_id={info['Id']}\n")
+          PY
+
+      - name: Store the verified release image for the publishing job
+        id: image-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verified-release-${{ steps.release.outputs.tag }}-${{ github.run_attempt }}
+          path: artifacts/release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Collect container logs
+        if: ${{ always() }}
+        run: |
+          mkdir -p artifacts
+          docker compose -f compose.demo.yaml -f .github/compose.ci.yaml logs --no-color > artifacts/docker.log
+
+      - name: Upload release verification reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-verification-${{ github.run_attempt }}
+          path: |
+            artifacts/unit-tests.xml
+            artifacts/*.png
+            artifacts/docker.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove the disposable simulator
+        if: ${{ always() }}
+        run: docker compose -f compose.demo.yaml -f .github/compose.ci.yaml down --volumes --remove-orphans
+
+  publish:
+    name: Publish the verified image and offline release assets
+    needs: build-and-test
+    if: ${{ github.repository == 'BartelLuis/UniBatch' && needs.build-and-test.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      packages: write
+    env:
+      RELEASE_TAG: ${{ needs.build-and-test.outputs.tag }}
+      VERSION: ${{ needs.build-and-test.outputs.version }}
+      SOURCE_SHA: ${{ needs.build-and-test.outputs.source_sha }}
+      TESTED_IMAGE_ID: ${{ needs.build-and-test.outputs.image_id }}
+    steps:
+      - name: Check out the exact tested source for release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build-and-test.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Download the verified image from this workflow run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.build-and-test.outputs.artifact_id }}
+          path: artifacts/release
+          digest-mismatch: error
+
+      - name: Verify the archive checksum and load the exact tested image
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          version, revision, tag = os.environ["VERSION"], os.environ["SOURCE_SHA"], os.environ["RELEASE_TAG"]
+          if (not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version)
+                  or tag != f"v{version}" or not re.fullmatch(r"[0-9a-f]{40}", revision)
+                  or not re.fullmatch(r"sha256:[0-9a-f]{64}", os.environ["TESTED_IMAGE_ID"])):
+              raise SystemExit("Invalid verified release identity.")
+          directory = Path("artifacts/release")
+          image = f"ghcr.io/bartelluis/unibatch:{version}"
+          sha_image = f"ghcr.io/bartelluis/unibatch:sha-{revision}"
+          archive = directory / f"unibatch-{version}-linux-amd64.tar.gz"
+          metadata = json.loads((directory / "release-metadata.json").read_text(encoding="utf-8"))
+          expected = {"schemaVersion": 1, "tag": tag, "version": version, "sourceCommit": revision,
+                      "platform": "linux/amd64", "image": image, "commitImage": sha_image,
+                      "imageId": os.environ["TESTED_IMAGE_ID"], "archive": archive.name}
+          if any(metadata.get(key) != value for key, value in expected.items()):
+              raise SystemExit("The artifact does not belong to the verified release.")
+          with archive.open("rb") as source:
+              checksum = hashlib.file_digest(source, "sha256").hexdigest()
+          checksum_file = archive.with_suffix(archive.suffix + ".sha256")
+          if (metadata.get("archiveSha256") != checksum
+                  or checksum_file.read_text(encoding="utf-8") != f"{checksum}  {archive.name}\n"):
+              raise SystemExit("The offline image archive failed SHA256 verification.")
+          subprocess.run(["docker", "load", "--input", str(archive)], check=True)
+          for reference in (image, sha_image):
+              info = json.loads(subprocess.check_output(["docker", "image", "inspect", reference], text=True))[0]
+              labels = info["Config"].get("Labels") or {}
+              if (info["Id"] != expected["imageId"] or info["Os"] != "linux" or info["Architecture"] != "amd64"
+                      or labels.get("org.opencontainers.image.version") != version
+                      or labels.get("org.opencontainers.image.revision") != revision
+                      or labels.get("org.opencontainers.image.source") != "https://github.com/BartelLuis/UniBatch"):
+                  raise SystemExit("The loaded image differs from the tested release.")
+          PY
+
+      - name: Authenticate to GHCR with this repository's scoped token
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish without replacing a different image or release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          # Credential-bearing requests are limited to the two fixed GitHub hosts.
+          # Never follow a redirect with an Authorization header.
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, message, headers, newurl):
+                  return None
+
+          opener = urllib.request.build_opener(NoRedirect)
+          token = os.environ["GH_TOKEN"]
+          repo = "BartelLuis/UniBatch"
+          version, revision, tag = os.environ["VERSION"], os.environ["SOURCE_SHA"], os.environ["RELEASE_TAG"]
+          directory = Path("artifacts/release")
+          metadata_path = directory / "release-metadata.json"
+          metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+          expected_id = os.environ["TESTED_IMAGE_ID"]
+          accept = ", ".join(("application/vnd.docker.distribution.manifest.v2+json",
+                              "application/vnd.oci.image.manifest.v1+json"))
+
+          def request(url, *, headers=None, payload=None, method="GET", missing=False):
+              parsed = urllib.parse.urlsplit(url)
+              if parsed.scheme != "https" or parsed.netloc not in {"api.github.com", "ghcr.io"}:
+                  raise SystemExit("Refusing an unexpected authenticated API endpoint.")
+              encoded = None if payload is None else json.dumps(payload).encode("utf-8")
+              request_headers = {"User-Agent": "UniBatch-release", **(headers or {})}
+              if encoded is not None:
+                  request_headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(url, data=encoded, headers=request_headers, method=method)
+              try:
+                  with opener.open(req, timeout=60) as response:
+                      content = response.read(2 * 1024 * 1024 + 1)
+                      if len(content) > 2 * 1024 * 1024:
+                          raise SystemExit("Unexpectedly large API response.")
+                      return json.loads(content), response.headers, content
+              except urllib.error.HTTPError as error:
+                  if missing and error.code == 404:
+                      return None, {}, b""
+                  raise SystemExit(f"Release API request failed with HTTP {error.code}; no overwrite attempted.") from None
+              except urllib.error.URLError:
+                  raise SystemExit("Release API unavailable; no overwrite attempted.") from None
+
+          github_headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                            "X-GitHub-Api-Version": "2026-03-10"}
+
+          def github(path, **kwargs):
+              return request(f"https://api.github.com/repos/{repo}/{path}", headers=github_headers, **kwargs)[0]
+
+          def verify_tag():
+              commit = github(f"commits/{urllib.parse.quote(tag, safe='')}")
+              if commit.get("sha") != revision:
+                  raise SystemExit("The release tag no longer points to the tested source commit.")
+
+          def manifest(reference):
+              credentials = base64.b64encode(f"{os.environ['GITHUB_ACTOR']}:{token}".encode()).decode()
+              query = urllib.parse.urlencode({"service": "ghcr.io", "scope": "repository:bartelluis/unibatch:pull,push"})
+              auth, _, _ = request(f"https://ghcr.io/token?{query}", headers={"Authorization": f"Basic {credentials}"})
+              bearer = auth.get("token") or auth.get("access_token")
+              if not isinstance(bearer, str) or not bearer:
+                  raise SystemExit("GHCR did not issue a registry token.")
+              url = f"https://ghcr.io/v2/bartelluis/unibatch/manifests/{urllib.parse.quote(reference, safe='')}"
+              headers = {"Authorization": f"Bearer {bearer}", "Accept": accept}
+              try:
+                  req = urllib.request.Request(url, headers=headers)
+                  with opener.open(req, timeout=60) as response:
+                      body = response.read(2 * 1024 * 1024 + 1)
+                      digest_header = response.headers.get("Docker-Content-Digest")
+              except urllib.error.HTTPError as error:
+                  if error.code == 404:
+                      details = json.loads(error.read(65536))
+                      codes = {item.get("code") for item in details.get("errors", [])}
+                      if codes and codes <= {"MANIFEST_UNKNOWN", "NAME_UNKNOWN"}:
+                          return None
+                  raise SystemExit(f"GHCR manifest verification failed with HTTP {error.code}.") from None
+              except urllib.error.URLError:
+                  raise SystemExit("GHCR is unavailable; existing versions will not be overwritten.") from None
+              if len(body) > 2 * 1024 * 1024:
+                  raise SystemExit("Unexpectedly large registry manifest.")
+              digest = "sha256:" + hashlib.sha256(body).hexdigest()
+              if digest_header != digest:
+                  raise SystemExit("GHCR manifest failed digest verification.")
+              remote = json.loads(body)
+              if remote.get("schemaVersion") != 2 or remote.get("config", {}).get("digest") != expected_id:
+                  raise SystemExit("An existing registry tag contains a different image; refusing to replace it.")
+              return digest
+
+          verify_tag()
+          # Check both tags before either write. Existing identical images support
+          # retrying a partially completed release without mutating version tags.
+          existing = {version: manifest(version), f"sha-{revision}": manifest(f"sha-{revision}")}
+          for reference in (f"sha-{revision}", version):
+              if existing[reference] is None:
+                  verify_tag()
+                  subprocess.run(["docker", "push", f"ghcr.io/bartelluis/unibatch:{reference}"], check=True)
+          version_digest = manifest(version)
+          commit_digest = manifest(f"sha-{revision}")
+          if not version_digest or version_digest != commit_digest:
+              raise SystemExit("Published version and commit tags do not identify the same manifest.")
+          metadata["registryDigest"] = version_digest
+          metadata["digestImage"] = f"ghcr.io/bartelluis/unibatch@{version_digest}"
+          metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+          verify_tag()
+          release = github(f"releases/tags/{urllib.parse.quote(tag, safe='')}", missing=True)
+          # The tag endpoint excludes drafts. Authenticated release listings
+          # include them, so a retry must check every page before creating one.
+          if release is None:
+              matches = []
+              page = 1
+              while True:
+                  releases = github(f"releases?per_page=100&page={page}")
+                  if not isinstance(releases, list) or any(not isinstance(item, dict) for item in releases):
+                      raise SystemExit("GitHub returned an invalid release listing.")
+                  matches.extend(item for item in releases if item.get("tag_name") == tag)
+                  if len(matches) > 1:
+                      raise SystemExit("Multiple releases reference this tag; refusing an ambiguous draft retry.")
+                  if len(releases) < 100:
+                      break
+                  page += 1
+              if matches:
+                  release = matches[0]
+          notes = (Path("docs/releases") / f"{tag}.md").read_text(encoding="utf-8")
+          notes = notes.replace("(../../README.md)", f"(https://github.com/{repo}/blob/{tag}/README.md)")
+          body = notes + f"\n\nImage: `{metadata['image']}`\n\nDigest: `{version_digest}`\n"
+          if release is None:
+              release = github("releases", method="POST", payload={"tag_name": tag, "target_commitish": revision,
+                               "name": f"UniBatch {tag}", "body": body, "draft": True, "prerelease": False})
+          if release.get("tag_name") != tag or not isinstance(release.get("id"), int):
+              raise SystemExit("GitHub returned an unexpected release.")
+          release_id = release["id"]
+          asset_paths = [directory / metadata["archive"], directory / (metadata["archive"] + ".sha256"), metadata_path]
+          assets = github(f"releases/{release_id}/assets?per_page=100")
+          by_name = {asset["name"]: asset for asset in assets}
+          for path in asset_paths:
+              with path.open("rb") as source:
+                  checksum = "sha256:" + hashlib.file_digest(source, "sha256").hexdigest()
+              existing_asset = by_name.get(path.name)
+              if existing_asset is not None:
+                  if (existing_asset.get("digest") != checksum or existing_asset.get("state") != "uploaded"
+                          or existing_asset.get("size") != path.stat().st_size):
+                      raise SystemExit("An existing release asset differs; refusing to overwrite it.")
+              else:
+                  subprocess.run(["gh", "release", "upload", tag, str(path), "--repo", repo], check=True)
+          # Verify every uploaded asset before publishing the draft release.
+          assets = github(f"releases/{release_id}/assets?per_page=100")
+          by_name = {asset["name"]: asset for asset in assets}
+          for path in asset_paths:
+              with path.open("rb") as source:
+                  checksum = "sha256:" + hashlib.file_digest(source, "sha256").hexdigest()
+              asset = by_name.get(path.name, {})
+              if asset.get("digest") != checksum or asset.get("state") != "uploaded" or asset.get("size") != path.stat().st_size:
+                  raise SystemExit("GitHub release asset verification failed.")
+          verify_tag()
+          if release.get("draft"):
+              github(f"releases/{release_id}", method="PATCH", payload={"draft": False, "body": body,
+                     "name": f"UniBatch {tag}", "prerelease": False, "make_latest": "legacy"})
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write(f"Published **{tag}** for **linux/amd64** after backend and browser verification.\n\n"
+                            f"Image: `{metadata['image']}`\n\nDigest: `{version_digest}`\n\n"
+                            f"Offline archive SHA256: `{metadata['archiveSha256']}`\n")
+          PY

@@ -1,6 +1,7 @@
 services:
   demo:
-    build: .
+    image: ghcr.io/bartelluis/unibatch:0.1.1
+    pull_policy: missing
     ports: ["127.0.0.1:${DEMO_PORT:-8080}:8080"]
     environment:
       DEMO_MODE: "true"

@@ -13,6 +13,18 @@
 
 Intern betriebenes Webwerkzeug für die lokale Verwaltung von WLANs, VLANs und RADIUS-Profilen auf mehreren UniFi OS Servern. Für den Betrieb mit 12 Servern und über 1.000 Sites ausgelegt; eine dauerhafte Simulation mit **12 Servern und 1.200 Sites** ist enthalten. Die Anwendung verwendet lokale UniFi APIs, ohne UniFi-Cloud, externe Browserressourcen oder Telemetrie. Die klassische lokale RADIUS-API wird je Server ausdrücklich aktiviert.
 
+## Fertiges Docker-Image
+
+[Release v0.1.1](https://github.com/BartelLuis/UniBatch/releases/tag/v0.1.1) stellt das Image **`ghcr.io/bartelluis/unibatch:0.1.1`** für **Linux/amd64** bereit; Änderungen und Abnahmegrenzen stehen in den [Releasehinweisen](docs/releases/v0.1.1.md). Die beiden Standard-Compose-Dateien verwenden diese feste Version. Für den Betrieb genügen Docker mit Linux-Containern und das Docker-Compose-Plugin; Python, Node.js und ein lokaler Image-Build sind auf dem Betriebshost nicht erforderlich. Die Compose-Dateien und Konfigurationsvorlagen aus dem Quellarchiv des Releases übernehmen und nach den folgenden Schritten konfigurieren.
+
+```powershell
+docker pull ghcr.io/bartelluis/unibatch:0.1.1
+```
+
+Neue GHCR-Pakete sind zunächst privat. Falls der Download eine Anmeldung verlangt, vorher `docker login ghcr.io --username <github-benutzer>` ausführen und beim Passwort einen persönlichen GitHub-Token mit `read:packages` für ein berechtigtes Konto eingeben. Für Downloads ohne Anmeldung die Paketsichtbarkeit unter **Package settings → Change visibility → Public** setzen. Das Imagearchiv im öffentlichen GitHub-Release lässt sich unabhängig davon herunterladen. [GitHubs Registry-Dokumentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
+Den veröffentlichten Image-Digest aus `release-metadata.json` in der internen Freigabe festhalten. Bei gewünschter Digest-Bindung den `image`-Eintrag der freigegebenen Compose-Datei auf `ghcr.io/bartelluis/unibatch@sha256:<freigegebener-digest>` setzen. Das Release stellt außerdem ein geprüftes Imagearchiv für den [Offline-Import](#offline-import-im-behördennetz) bereit.
+
 ## Funktionen
 
 - Einheitliche Administrationsoberfläche mit gruppierter Navigation, kompakter Betriebsübersicht, Statusanzeigen, Tabellen und gegliederten Formularen. Benutzer-, Rollen- und Servereditoren öffnen sich bei Bedarf; Bestätigungen und Eingaben erfolgen in Dialogen mit Fokusverwaltung und Tastatursteuerung. Die mobile Navigation unterstützt Tastatur und Escape.
@@ -32,7 +44,8 @@ Intern betriebenes Webwerkzeug für die lokale Verwaltung von WLANs, VLANs und R
 ## Simulation starten
 
 ```powershell
-docker compose -f compose.demo.yaml up --build -d
+docker compose -f compose.demo.yaml pull
+docker compose -f compose.demo.yaml up --no-build -d
 ```
 
 **<http://localhost:8080>** öffnen. Die Simulation sendet keine Anfragen an echte UniFi-Systeme. Sie hat drei vorangelegte Konten:
@@ -64,20 +77,31 @@ $env:DATA_DIR='data/demo-v2'
 
 Bei einem Upgrade vom ersten Prototyp das Datenvolume vorher sichern. Dessen Tabellen `jobs` und `audit` bleiben in der Datei erhalten, werden in der neuen GUI aber nicht angezeigt. Offene Prototyp-Aufträge neu planen und die bisherige Historie entsprechend eurem Archivierungsverfahren aufbewahren.
 
-1. Anwendungsschlüssel und ein persönliches lokales Administrationskonto erzeugen. Passwörter werden interaktiv abgefragt:
+1. Anwendungsschlüssel und ein persönliches lokales Administrationskonto mit dem fertigen Image erzeugen. Unter PowerShell das Secret-Verzeichnis anlegen und ausschließlich für die zuständigen Betreiberkonten zugänglich machen. Passwörter werden interaktiv abgefragt und nicht als Kommandozeilenparameter übergeben:
 
    ```powershell
-   .venv\Scripts\python -m app.manage key --file secrets/encryption_key
-   .venv\Scripts\python -m app.manage user --file secrets/users.json --name notfall-admin --role admin
+   New-Item -ItemType Directory -Force secrets | Out-Null
+   $bootstrapPath = (Resolve-Path ./secrets).Path
+   docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 10001:10001 --mount "type=bind,source=$bootstrapPath,target=/bootstrap" --entrypoint python ghcr.io/bartelluis/unibatch:0.1.1 -m app.manage key --file /bootstrap/encryption_key
+   docker run --rm -it --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 10001:10001 --mount "type=bind,source=$bootstrapPath,target=/bootstrap" --entrypoint python ghcr.io/bartelluis/unibatch:0.1.1 -m app.manage user --file /bootstrap/users.json --name notfall-admin --role admin
+   ```
+
+   Auf einem Linux-Host stattdessen das Verzeichnis vorher für die Container-UID/GID **10001:10001** bereitstellen und die folgenden Bash-Befehle verwenden. Bei Rootless Docker bzw. User-Namespace-Mapping müssen die zugeordneten Host-IDs entsprechend eurem Docker-Betriebskonzept verwendet werden.
+
+   ```bash
+   sudo install -d -m 0700 -o 10001 -g 10001 secrets
+   docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 10001:10001 --mount "type=bind,source=$(pwd)/secrets,target=/bootstrap" --entrypoint python ghcr.io/bartelluis/unibatch:0.1.1 -m app.manage key --file /bootstrap/encryption_key
+   docker run --rm -it --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 10001:10001 --mount "type=bind,source=$(pwd)/secrets,target=/bootstrap" --entrypoint python ghcr.io/bartelluis/unibatch:0.1.1 -m app.manage user --file /bootstrap/users.json --name notfall-admin --role admin
+   sudo chmod 0600 secrets/encryption_key secrets/users.json
    ```
 
    Bei der ersten Inbetriebnahme wird `users.json` einmalig übernommen. Danach gelten die Konten aus der Datenbank und werden in der GUI verwaltet. Die letzte aktive globale lokale Administration ist gegen Deaktivierung und Rechteentzug geschützt. Weitere persönliche Konten und eigene Rollen über **Benutzer & Rollen** anlegen. Die Anwendung verlangt im Produktivbetrieb eine lokale Administration als Wiederherstellungszugang. [Details zu Identitäten und LDAP](docs/identity.md).
 
 2. `config/servers.example.json` nach `config/servers.json` kopieren. Die Beispielkonfiguration kann einen initialen Server enthalten; weitere elf Server über die GUI hinzufügen. Für eine vollständige Erstübernahme können auch alle zwölf in der Datei stehen. Nach der Erstübernahme sind Änderungen über die GUI maßgeblich. Beim Import verweisen `key_file` und `ca_file` auf gemountete Secret-Dateien.
-3. `secrets/unifi_01` mit dem lokalen API-Key und `secrets/internal_ca.pem` mit der internen CA-Kette bereitstellen. Zusätzliche CA-Dateien im Container unter `/run/secrets` einbinden. GUI-API-Keys werden verschlüsselt gespeichert; sie werden nie zurückgegeben. Hostdateien mit restriktiven ACLs versehen.
+3. `secrets/unifi_01` mit dem lokalen API-Key und `secrets/internal_ca.pem` mit der internen CA-Kette bereitstellen. Zusätzliche CA-Dateien im Container unter `/run/secrets` einbinden. GUI-API-Keys werden verschlüsselt gespeichert; sie werden nie zurückgegeben. Hostdateien mit restriktiven ACLs versehen; unter Linux Eigentümer 10001:10001 und Modus 0600 für die Secret-Dateien verwenden. Dieselben Leserechte gelten für LDAP-/RADIUS-Passwortdateien. `config/servers.json` muss für UID 10001 lesbar sein.
 4. In `compose.yaml` **`ALLOWED_CONTROLLER_HOSTS` auf die exakten Hostnamen aller zwölf Server setzen**. Diese vom Betreiber festgelegte Liste begrenzt auch GUI-Administratoren. Zusätzlich auf Netzwerkebene ausgehende Verbindungen auf diese Server und die AD-DCs begrenzen. Die Anwendung akzeptiert nur RFC1918-/ULA-Ziele, pinnt die geprüfte DNS-IP für den Zugriff und prüft TLS einschließlich des ursprünglichen Hostnamens. UniFi-Cloud-Endpunkte sind ausgeschlossen.
 5. Einen internen HTTPS-Reverse-Proxy vor den nur auf `127.0.0.1:8080` veröffentlichten Dienst setzen. **`APP_ORIGIN` muss exakt der Browser-URL entsprechen**, ohne abschließenden Slash. Benutzerzugriff über HTTP ist im Produktivbetrieb nicht vorgesehen. Bei einem separaten Proxy-Host die Netzwerkbindung ausdrücklich auf das erlaubte Proxysegment anpassen.
-6. `docker compose up --build -d` starten und die Serververbindung/Vorschauen testen. Schreibzugriffe beginnen gesperrt (`ENABLE_WRITES=false`). Die genaue installierte UniFi-Network-Version und das vollständige GET/PUT-Verhalten auf dedizierten Test-Sites prüfen. Danach `ENABLE_WRITES=true` gezielt setzen und den Dienst neu erstellen.
+6. `docker compose pull` und danach `docker compose up --no-build -d` ausführen und die Serververbindung/Vorschauen testen. Schreibzugriffe beginnen gesperrt (`ENABLE_WRITES=false`). Die genaue installierte UniFi-Network-Version und das vollständige GET/PUT-Verhalten auf dedizierten Test-Sites prüfen. Danach `ENABLE_WRITES=true` gezielt setzen und den Dienst neu erstellen. Bei Offline-Import das Pull-Kommando auslassen und mit `--pull never` starten.
 
 Der Container läuft als UID 10001 mit schreibgeschütztem Root-Dateisystem, ohne Linux-Capabilities, mit `no-new-privileges` und Ressourcenlimits. Das Image initialisiert das Datenvolume mit passenden Rechten. Beim Ersetzen durch einen Host-Bindmount muss UID 10001 auf dessen Datenverzeichnis schreiben können.
 
@@ -88,7 +112,7 @@ Die Anbindung ist in der GUI unter **Verzeichnis** konfigurierbar. Dazu wird kei
 Alternativ kann `config/ldap.example.json` für die Erstübernahme verwendet werden:
 
 ```powershell
-docker compose -f compose.yaml -f compose.ldap.yaml up --build -d
+docker compose -f compose.yaml -f compose.ldap.yaml up --no-build -d
 ```
 
 Dazu `config/ldap.json` und `secrets/ldap_bind_password` bereitstellen. Die Datei wird nur bei der Erstkonfiguration übernommen. Für AD muss das Servicekonto Gruppenmitgliedschaften und Kontostatus lesen können. Bei geplanten Aufträgen werden AD-Rechte und Kontoaktivität über einen Service-Bind erneut geprüft, mit höchstens 60 Sekunden Zwischenspeicherung. Keine Benutzerpasswörter werden dafür gespeichert. [Felder, Gruppenregeln und Kontostatusprüfung](docs/identity.md).
@@ -153,7 +177,7 @@ Diese Anwendung ist keine behördliche Zulassung oder BSI-Zertifizierung. Vor Pr
 
 ## GitHub Actions und Badges
 
-Die Workflows starten bei Pushes, Pull Requests und manuell über **Actions → Run workflow**:
+Die Prüfworkflows starten bei Pushes, Pull Requests und manuell über **Actions → Run workflow**:
 
 - [CI](.github/workflows/ci.yml): vollständige Backendtests einschließlich des 1.200-Site-Rollouts, JavaScript-Syntax, Produktions-/LDAP-/Demo-Compose-Prüfung und JUnit-Bericht mit Ergebniszusammenfassung.
 - [Docker und Browser](.github/workflows/docker.yml): Container bauen, die enthaltene Simulation mit einem separaten Volume starten und beide Browserabläufe für WLAN/VLAN sowie RADIUS ausführen. Screenshots und Containerlogs werden sieben Tage als Artefakte aufgehoben. Erfolgreiche Push-/manuelle Läufe stellen außerdem das getestete Image als `docker-image-<commit>` mit SHA-256-Datei für den Offline-Import bereit. Pull Requests exportieren kein Image-Artefakt. Es erfolgt kein Registry-Push oder Deployment.
@@ -161,6 +185,8 @@ Die Workflows starten bei Pushes, Pull Requests und manuell über **Actions → 
 - [Security](.github/workflows/security.yml): Bandit untersucht Anwendung und Wartungswerkzeuge; pip-audit prüft alle fixierten Produktionspakete. npm audit prüft auch die JavaScript-Entwicklungswerkzeuge und blockiert ab Schweregrad `moderate`. JSON-Berichte bleiben sieben Tage verfügbar. Der Workflow läuft zusätzlich jeden Montag, damit neue Schwachstellen auch ohne Codeänderung auffallen.
 - [Secret Scan](.github/workflows/secrets.yml): Gitleaks durchsucht die vollständige ausgecheckte Git-Historie bei Pushes, Pull Requests, manuell und wöchentlich. Funde lassen den Job fehlschlagen; Logs und JSON-Bericht maskieren die Geheimnisse vollständig.
 - [Dependabot-Konfiguration](.github/workflows/dependabot.yml): prüft YAML einschließlich doppelter Schlüssel, Update-Verzeichnisse, Zeitpläne, Zeitzonen und Gruppen. Zusätzliche Dependabot-Optionen werden von GitHub geprüft.
+
+Der separate [Release-Workflow](.github/workflows/release.yml) prüft vor der Veröffentlichung sämtliche Backendtests und beide GUI-Abläufe mit einem frischen Demo-Volume. Er veröffentlicht genau das getestete Linux/amd64-Image mit dem Versionstag `ghcr.io/bartelluis/unibatch:0.1.1`; ein `latest`-Tag wird nicht gesetzt. Das GitHub-Release enthält zusätzlich `unibatch-0.1.1-linux-amd64.tar.gz`, die zugehörige `.sha256`-Datei und `release-metadata.json`. Die Veröffentlichung benötigt `packages: write` und `contents: write`; sie startet keinen Dienst und führt kein Deployment im Behördennetz aus.
 
 Die Workflows verwenden GitHub-gehostete Ubuntu-24.04-Runner, Python 3.14, Node.js 24 und feste Action-Commit-IDs. Die Test-, Lint-, Audit- und Secret-Scan-Jobs besitzen ausschließlich `contents: read`; Checkout speichert keine Git-Zugangsdaten. Die Prüfungen verwenden simulierte UniFi-Daten und gemockte LDAP-Verbindungen. UniFi-/AD-Schlüssel oder Produktionsdateien werden dafür nicht benötigt. Der Vorbereitungsrunner benötigt Internetzugang für geprüfte Abhängigkeiten, Scanner, Browser und Basisimage; das exportierte Anwendungsimage kann anschließend im internen Netz importiert werden.
 
@@ -191,7 +217,22 @@ Die sechs Workflow-Badges zeigen GitHubs dynamischen [Workflow-Status](https://d
 
 Das Kommando ändert ausschließlich den markierten Badge-Block der README und akzeptiert auch eine GitHub-Repository-URL. Private Repository-Badges setzen entsprechende GitHub-Zugriffsrechte voraus; die lokalen Technik-Badges bleiben ohne externe Bilddienste lesbar.
 
-## Lokal prüfen und offline bauen
+## Lokale Entwicklung und Prüfungen
+
+Standard-Compose verwendet das fertige Releaseimage. Für einen eigenen Build des Produktivdienstes dient ausschließlich der zusätzliche [Build-Override](compose.build.yaml):
+
+```powershell
+docker compose -f compose.yaml -f compose.build.yaml up --build -d web
+```
+
+Der Override erzeugt `unifi-batch:dev`. Konfiguration und Secrets für den Produktivdienst bleiben erforderlich. Für eine isolierte Entwicklungs-Simulation das Testimage bauen und den CI-Override verwenden; diese Befehle starten ausschließlich den Demo-Service:
+
+```powershell
+docker build --tag unifi-batch:ci .
+docker compose -f compose.demo.yaml -f .github/compose.ci.yaml up --no-build -d
+```
+
+Die folgenden Python-/npm-Befehle sind für die Entwicklung und Prüfungen vorgesehen:
 
 ```powershell
 .venv\Scripts\python -m pip install -r requirements-dev.txt
@@ -232,4 +273,16 @@ $env:UNIFI_BROWSER_URL = 'http://localhost:8090' # URL der tatsächlich laufende
 
 Browser-Screenshots liegen unter `artifacts/`. Testumfang: 1.200-Site-Batch, WLAN-/VLAN-/RADIUS-CRUD, Geheimnismaskierung, Enterprise-Zuordnung, Vier-Augen-Prinzip, Scope-/Rollenregeln, Abbruch vor Writes, Timeouts, Wiederherstellung, Neustart, Audit und lokale TLS-/DNS-Regeln. Für den klassischen RADIUS-Adapter werden außerdem Anmeldung, TLS-/DNS-Pinning, Verwendungsreferenzen und Antworten mit unbekannten Feldern geprüft. Die Simulation ersetzt keine Live-Abnahme im Zielnetz.
 
-Docker-Builds verwenden `requirements.lock` mit fixierten transitiven Paketen und Hashes. Ein geprüftes Wheel-/Image-Repository in eurer Freigabepipeline verwenden. Das fertige Containerimage kann per `docker save` exportiert und im Behördennetz per `docker load` importiert werden. Laufzeitabhängigkeiten werden beim Start nicht heruntergeladen. Basisimage-Digest und freigegebene Paketartefakte in eurer Releasefreigabe festhalten; Internetzugang ist nur bei der Vorbereitung nötig, sofern kein interner Mirror verwendet wird.
+## Offline-Import im Behördennetz
+
+Die drei Dateien `unibatch-0.1.1-linux-amd64.tar.gz`, `unibatch-0.1.1-linux-amd64.tar.gz.sha256` und `release-metadata.json` aus [Release v0.1.1](https://github.com/BartelLuis/UniBatch/releases/tag/v0.1.1) in eurer Freigabepipeline prüfen und gemeinsam mit den Compose-Dateien und Konfigurationsvorlagen ins interne Netz übertragen. Die Prüfsumme auf dem Zielhost mit dem übertragenen Archiv vergleichen. Unter Linux:
+
+```bash
+sha256sum --check unibatch-0.1.1-linux-amd64.tar.gz.sha256
+docker load --input unibatch-0.1.1-linux-amd64.tar.gz
+docker compose -f compose.demo.yaml up --pull never --no-build -d
+```
+
+Unter PowerShell liefert `Get-FileHash ./unibatch-0.1.1-linux-amd64.tar.gz -Algorithm SHA256` den Vergleichswert; anschließend dieselben `docker load`-/Compose-Kommandos verwenden. Das Archiv enthält bereits den Tag `ghcr.io/bartelluis/unibatch:0.1.1`. Für den Produktivbetrieb nach der beschriebenen Erstkonfiguration `docker compose up --pull never --no-build -d` verwenden. Demo und Produktivbetrieb nicht gleichzeitig auf demselben Port starten.
+
+Alternativ auf dem freigegebenen Vorbereitungsrechner `docker pull ghcr.io/bartelluis/unibatch:0.1.1` und `docker save --output unibatch-0.1.1.tar ghcr.io/bartelluis/unibatch:0.1.1` ausführen; das überprüfte Archiv auf dem Zielhost per `docker load --input unibatch-0.1.1.tar` importieren. Laufzeitabhängigkeiten werden beim Start nicht heruntergeladen. Docker-Builds verwenden `requirements.lock` mit fixierten transitiven Paketen und Hashes. Basisimage-Digest und freigegebene Paketartefakte in eurer Releasefreigabe festhalten; Internetzugang ist nur bei der Vorbereitung nötig, sofern kein interner Mirror verwendet wird.

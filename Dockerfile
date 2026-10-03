@@ -1,4 +1,11 @@
 FROM python:3.14-slim@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4
+ARG VERSION=0.1.1
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="UniBatch" \
+      org.opencontainers.image.description="Local UniFi WLAN, VLAN and RADIUS batch management" \
+      org.opencontainers.image.source="https://github.com/BartelLuis/UniBatch" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY requirements.lock .

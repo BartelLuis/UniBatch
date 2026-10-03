@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from app import __version__
 from app.settings import Settings
 from app.service import Service
 from app.jobs import ACTIVE, check_scope, create_job, detail, inverse_job, job_row, resource_path, segment, summary
@@ -109,7 +110,7 @@ def create_app(config=None):
             yield
         finally:
             await ctx.close()
-    app = FastAPI(docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
+    app = FastAPI(title='UniBatch',version=__version__,docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
     app.state.ctx = ctx
     ctx.auth.install(app)
     @app.exception_handler(RequestValidationError)

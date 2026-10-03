@@ -62,7 +62,9 @@ jobs:
         run: |
           docker compose -f compose.yaml config --quiet
           docker compose -f compose.yaml -f compose.ldap.yaml config --quiet
+          docker compose -f compose.yaml -f compose.build.yaml config --quiet
           docker compose -f compose.demo.yaml config --quiet
+          docker compose -f compose.demo.yaml -f .github/compose.ci.yaml config --quiet
 
       - name: Run all backend tests, including the 1,200-site rollout
         run: python -m pytest tests -q --junitxml=artifacts/unit-tests.xml

@@ -1,0 +1,8 @@
+# Development override for the production service; deployment uses the release image.
+services:
+  web:
+    image: unifi-batch:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    pull_policy: build

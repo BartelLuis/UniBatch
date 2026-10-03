@@ -2,3 +2,4 @@
 services:
   demo:
     image: unifi-batch:ci
+    pull_policy: never
