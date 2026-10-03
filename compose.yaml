@@ -1,0 +1,44 @@
+services:
+  web:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      APP_ORIGIN: https://unifi-batch.intern.example
+      DATA_DIR: /data
+      SERVERS_FILE: /config/servers.json
+      USERS_FILE: /run/secrets/users
+      ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      ENABLE_WRITES: "false"
+      INVENTORY_INTERVAL: "900"
+      PREVIEW_TTL: "86400"
+      # Operator-controlled host allowlist: list all 12 UniFi OS hostnames here.
+      ALLOWED_CONTROLLER_HOSTS: unifi.intern.example
+    volumes:
+      - batch-data:/data
+      - ./config/servers.json:/config/servers.json:ro
+    secrets:
+      - users
+      - encryption_key
+      - unifi_01
+      - internal_ca
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
+    restart: unless-stopped
+secrets:
+  users:
+    file: ./secrets/users.json
+  encryption_key:
+    file: ./secrets/encryption_key
+  unifi_01:
+    file: ./secrets/unifi_01
+  internal_ca:
+    file: ./secrets/internal_ca.pem
+volumes:
+  batch-data:

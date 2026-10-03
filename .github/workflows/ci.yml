@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Backend, JavaScript and Compose checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements*.txt
+            requirements*.lock
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install hash-locked application dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+
+      - name: Install hash-locked test dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+
+      - name: Verify manifests and locks agree
+        run: python tools/check_requirements.py
+
+      - name: Check installed dependency consistency
+        run: python -m pip check
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check app/static/app.js
+          node --check app/static/dialog.js
+
+      - name: Validate Docker Compose configuration
+        run: |
+          docker compose -f compose.yaml config --quiet
+          docker compose -f compose.yaml -f compose.ldap.yaml config --quiet
+          docker compose -f compose.demo.yaml config --quiet
+
+      - name: Run all backend tests, including the 1,200-site rollout
+        run: python -m pytest tests -q --junitxml=artifacts/unit-tests.xml
+
+      - name: Summarize test counts
+        if: ${{ always() && hashFiles('artifacts/unit-tests.xml') != '' }}
+        run: |
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = ET.parse("artifacts/unit-tests.xml").getroot()
+          suites = list(root.iter("testsuite"))
+          totals = {key: sum(int(suite.get(key, "0")) for suite in suites)
+                    for key in ("tests", "failures", "errors", "skipped")}
+          elapsed = sum(float(suite.get("time", "0")) for suite in suites)
+          passed = totals["tests"] - totals["failures"] - totals["errors"] - totals["skipped"]
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write(f"Backend tests: **{passed} passed**, {totals['failures']} failed, "
+                            f"{totals['errors']} errors, {totals['skipped']} skipped "
+                            f"({totals['tests']} collected; {elapsed:.1f} seconds).\n")
+          PY
+
+      - name: Upload JUnit report
+        if: ${{ always() && hashFiles('artifacts/unit-tests.xml') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-test-report
+          path: artifacts/unit-tests.xml
+          if-no-files-found: error
+          retention-days: 7

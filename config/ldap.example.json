@@ -1,0 +1,12 @@
+{
+  "url": "ldaps://dc01.intern.example:636",
+  "ca_file": "/run/secrets/internal_ca",
+  "bind_dn": "CN=svc-unifi-batch,OU=Services,DC=intern,DC=example",
+  "bind_password_file": "/run/secrets/ldap_bind_password",
+  "base_dn": "OU=People,DC=intern,DC=example",
+  "role_groups": {
+    "operator": "CN=UniFi-Operator,OU=Groups,DC=intern,DC=example",
+    "approver": "CN=UniFi-Approver,OU=Groups,DC=intern,DC=example",
+    "viewer": "CN=UniFi-Viewer,OU=Groups,DC=intern,DC=example"
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "uos-01",
+    "name": "UniFi OS Server 01",
+    "origin": "https://unifi.intern.example",
+    "api_prefix": "/proxy/network/integration/v1",
+    "key_file": "/run/secrets/unifi_01",
+    "ca_file": "/run/secrets/internal_ca",
+    "radius_legacy_enabled": false,
+    "radius_auth_mode": "api_key"
+  }
+]

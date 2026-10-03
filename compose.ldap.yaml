@@ -1,0 +1,11 @@
+services:
+  web:
+    environment:
+      LDAP_CONFIG_FILE: /config/ldap.json
+    volumes:
+      - ./config/ldap.json:/config/ldap.json:ro
+    secrets:
+      - ldap_bind_password
+secrets:
+  ldap_bind_password:
+    file: ./secrets/ldap_bind_password

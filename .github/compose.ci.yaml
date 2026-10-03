@@ -1,0 +1,4 @@
+# Use the exact image built by the workflow, with a disposable demo volume.
+services:
+  demo:
+    image: unifi-batch:ci
