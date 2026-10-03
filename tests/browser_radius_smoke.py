@@ -5,6 +5,7 @@ Run with UNIFI_BROWSER_URL=http://localhost:8090 for the Docker demo.
 import os
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -58,13 +59,23 @@ with sync_playwright() as playwright:
 
     def select_two_sites():
         page.locator('#clear-selection').click()
-        for server in ('demo-01', 'demo-02'):
+        expect(page.locator('#target-count')).to_have_text('0 ausgewählt')
+        for count, (server, site) in enumerate((('demo-01', 'site-0001'), ('demo-02', 'site-0101')), 1):
             page.locator('#site-server').select_option(server)
             page.locator('#site-search').fill('')
-            page.locator('#site-search-form').get_by_role('button', name='Suchen').click()
+            # Every server has 100 sites; the old pager text does not signal new rows.
+            search = page.locator('#site-search-form').get_by_role('button', name='Suchen')
+            with page.expect_response(lambda response, server=server:
+                    response.request.method == 'GET' and urlsplit(response.url).path == '/api/inventory'
+                    and parse_qs(urlsplit(response.url).query).get('server') == [server]) as inventory:
+                search.click()
+            assert inventory.value.status == 200, inventory.value.status
+            expect(search).to_be_enabled()
             expect(page.locator('#site-pager')).to_contain_text('von 100')
-            page.locator('#site-rows input[type="checkbox"]').first.check()
-        expect(page.locator('#target-count')).to_have_text('2 ausgewählt')
+            row = page.locator('#site-rows tr').filter(has=page.locator('small', has_text=site))
+            expect(row).to_have_count(1)
+            row.get_by_role('checkbox').check()
+            expect(page.locator('#target-count')).to_have_text(f'{count} ausgewählt')
 
     def radius_editor(operation):
         show('workspace')

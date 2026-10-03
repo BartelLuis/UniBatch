@@ -7,6 +7,7 @@ import os
 import json
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import sync_playwright, expect
 
 url = os.environ.get('UNIFI_BROWSER_URL', 'http://localhost:8080')
@@ -91,10 +92,18 @@ with sync_playwright() as p:
     expect(page.locator('#target-count')).to_have_text('2 ausgewählt')
     page.locator('#site-rows input[type="checkbox"]').first.uncheck()
     page.locator('#site-server').select_option('demo-12')
-    page.locator('#site-search-form').get_by_role('button', name='Suchen').click()
+    search = page.locator('#site-search-form').get_by_role('button', name='Suchen')
+    with page.expect_response(lambda response:
+            response.request.method == 'GET' and urlsplit(response.url).path == '/api/inventory'
+            and parse_qs(urlsplit(response.url).query).get('server') == ['demo-12']) as inventory:
+        search.click()
+    assert inventory.value.status == 200, inventory.value.status
+    expect(search).to_be_enabled()
     expect(page.locator('#site-pager')).to_contain_text('von 100')
     expect(page.locator('#target-count')).to_have_text('1 ausgewählt')
-    page.locator('#site-rows input[type="checkbox"]').first.check()
+    row = page.locator('#site-rows tr').filter(has=page.locator('small', has_text='site-1101'))
+    expect(row).to_have_count(1)
+    row.get_by_role('checkbox').check()
     expect(page.locator('#target-count')).to_have_text('2 ausgewählt')
     page.locator('#site-rows').get_by_role('button', name='Ansehen').first.click()
     expect(page.locator('#site-inspector')).to_contain_text('Verwaltung')
