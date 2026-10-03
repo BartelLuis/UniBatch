@@ -106,9 +106,12 @@ jobs:
           retention-days: 7
 
   codeql:
-    # Enable only after CodeQL availability and advanced setup are configured
-    # for this repository; the default checks require no Code Security license.
-    if: ${{ vars.ENABLE_CODEQL == 'true' }}
+    # Public repositories run by default. Private repositories require an
+    # explicit opt-in after Code Security availability has been confirmed.
+    # An explicit false disables CodeQL; missing visibility stays opted out.
+    if: >-
+      ${{ vars.ENABLE_CODEQL != 'false' &&
+          (vars.ENABLE_CODEQL == 'true' || toJSON(github.event.repository.private) == 'false') }}
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
