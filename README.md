@@ -3,6 +3,10 @@
 <!-- badges:start -->
 [![CI](https://github.com/BartelLuis/UniBatch/actions/workflows/ci.yml/badge.svg)](https://github.com/BartelLuis/UniBatch/actions/workflows/ci.yml)
 [![Docker und Browser](https://github.com/BartelLuis/UniBatch/actions/workflows/docker.yml/badge.svg)](https://github.com/BartelLuis/UniBatch/actions/workflows/docker.yml)
+[![Lint](https://github.com/BartelLuis/UniBatch/actions/workflows/lint.yml/badge.svg)](https://github.com/BartelLuis/UniBatch/actions/workflows/lint.yml)
+[![Security](https://github.com/BartelLuis/UniBatch/actions/workflows/security.yml/badge.svg)](https://github.com/BartelLuis/UniBatch/actions/workflows/security.yml)
+[![Secret Scan](https://github.com/BartelLuis/UniBatch/actions/workflows/secrets.yml/badge.svg)](https://github.com/BartelLuis/UniBatch/actions/workflows/secrets.yml)
+[![Dependabot-Konfiguration](https://github.com/BartelLuis/UniBatch/actions/workflows/dependabot.yml/badge.svg)](https://github.com/BartelLuis/UniBatch/actions/workflows/dependabot.yml)
 ![Python 3.14](docs/badges/python.svg)
 ![Lokale UniFi API](docs/badges/local-api.svg)
 <!-- badges:end -->
@@ -31,9 +35,9 @@ Intern betriebenes Webwerkzeug für die lokale Verwaltung von WLANs, VLANs und R
 docker compose -f compose.demo.yaml up --build -d
 ```
 
-**http://localhost:8080** öffnen. Die Simulation sendet keine Anfragen an echte UniFi-Systeme. Sie hat drei vorangelegte Konten:
+**<http://localhost:8080>** öffnen. Die Simulation sendet keine Anfragen an echte UniFi-Systeme. Sie hat drei vorangelegte Konten:
 
-Der Demo-Port kann über `DEMO_PORT` in einer lokalen `.env` angepasst werden. In diesem Workspace läuft die geprüfte Docker-Simulation auf **http://localhost:8090**, weil Docker Port 8080 als belegt meldet. Die passende Einstellung ist bereits in der ignorierten `.env` hinterlegt. Für eine separate Installation dient `.env.example` als Vorlage.
+Der Demo-Port kann über `DEMO_PORT` in einer lokalen `.env` angepasst werden. In diesem Workspace läuft die geprüfte Docker-Simulation auf **<http://localhost:8090>**, weil Docker Port 8080 als belegt meldet. Die passende Einstellung ist bereits in der ignorierten `.env` hinterlegt. Für eine separate Installation dient `.env.example` als Vorlage.
 
 | Konto | Passwort | Verwendung |
 | --- | --- | --- |
@@ -62,12 +66,12 @@ Bei einem Upgrade vom ersten Prototyp das Datenvolume vorher sichern. Dessen Tab
 
 1. Anwendungsschlüssel und ein persönliches lokales Administrationskonto erzeugen. Passwörter werden interaktiv abgefragt:
 
-```powershell
-.venv\Scripts\python -m app.manage key --file secrets/encryption_key
-.venv\Scripts\python -m app.manage user --file secrets/users.json --name notfall-admin --role admin
-```
+   ```powershell
+   .venv\Scripts\python -m app.manage key --file secrets/encryption_key
+   .venv\Scripts\python -m app.manage user --file secrets/users.json --name notfall-admin --role admin
+   ```
 
-Bei der ersten Inbetriebnahme wird `users.json` einmalig übernommen. Danach gelten die Konten aus der Datenbank und werden in der GUI verwaltet. Die letzte aktive globale lokale Administration ist gegen Deaktivierung und Rechteentzug geschützt. Weitere persönliche Konten und eigene Rollen über **Benutzer & Rollen** anlegen. Die Anwendung verlangt im Produktivbetrieb eine lokale Administration als Wiederherstellungszugang. [Details zu Identitäten und LDAP](docs/identity.md).
+   Bei der ersten Inbetriebnahme wird `users.json` einmalig übernommen. Danach gelten die Konten aus der Datenbank und werden in der GUI verwaltet. Die letzte aktive globale lokale Administration ist gegen Deaktivierung und Rechteentzug geschützt. Weitere persönliche Konten und eigene Rollen über **Benutzer & Rollen** anlegen. Die Anwendung verlangt im Produktivbetrieb eine lokale Administration als Wiederherstellungszugang. [Details zu Identitäten und LDAP](docs/identity.md).
 
 2. `config/servers.example.json` nach `config/servers.json` kopieren. Die Beispielkonfiguration kann einen initialen Server enthalten; weitere elf Server über die GUI hinzufügen. Für eine vollständige Erstübernahme können auch alle zwölf in der Datei stehen. Nach der Erstübernahme sind Änderungen über die GUI maßgeblich. Beim Import verweisen `key_file` und `ca_file` auf gemountete Secret-Dateien.
 3. `secrets/unifi_01` mit dem lokalen API-Key und `secrets/internal_ca.pem` mit der internen CA-Kette bereitstellen. Zusätzliche CA-Dateien im Container unter `/run/secrets` einbinden. GUI-API-Keys werden verschlüsselt gespeichert; sie werden nie zurückgegeben. Hostdateien mit restriktiven ACLs versehen.
@@ -153,10 +157,16 @@ Die Workflows starten bei Pushes, Pull Requests und manuell über **Actions → 
 
 - [CI](.github/workflows/ci.yml): vollständige Backendtests einschließlich des 1.200-Site-Rollouts, JavaScript-Syntax, Produktions-/LDAP-/Demo-Compose-Prüfung und JUnit-Bericht mit Ergebniszusammenfassung.
 - [Docker und Browser](.github/workflows/docker.yml): Container bauen, die enthaltene Simulation mit einem separaten Volume starten und beide Browserabläufe für WLAN/VLAN sowie RADIUS ausführen. Screenshots und Containerlogs werden sieben Tage als Artefakte aufgehoben. Erfolgreiche Push-/manuelle Läufe stellen außerdem das getestete Image als `docker-image-<commit>` mit SHA-256-Datei für den Offline-Import bereit. Pull Requests exportieren kein Image-Artefakt. Es erfolgt kein Registry-Push oder Deployment.
+- [Lint](.github/workflows/lint.yml): Ruff prüft Python auf Syntax-, Import- und typische Laufzeitfehler; ESLint prüft die Browser-Skripte. Markdownlint prüft README und Dokumentation, Actionlint sämtliche Workflows und Hadolint das Dockerfile einschließlich Warnungen.
+- [Security](.github/workflows/security.yml): Bandit untersucht Anwendung und Wartungswerkzeuge; pip-audit prüft alle fixierten Produktionspakete. npm audit prüft auch die JavaScript-Entwicklungswerkzeuge und blockiert ab Schweregrad `moderate`. JSON-Berichte bleiben sieben Tage verfügbar. Der Workflow läuft zusätzlich jeden Montag, damit neue Schwachstellen auch ohne Codeänderung auffallen.
+- [Secret Scan](.github/workflows/secrets.yml): Gitleaks durchsucht die vollständige ausgecheckte Git-Historie bei Pushes, Pull Requests, manuell und wöchentlich. Funde lassen den Job fehlschlagen; Logs und JSON-Bericht maskieren die Geheimnisse vollständig.
+- [Dependabot-Konfiguration](.github/workflows/dependabot.yml): prüft YAML einschließlich doppelter Schlüssel, Update-Verzeichnisse, Zeitpläne, Zeitzonen und Gruppen. Zusätzliche Dependabot-Optionen werden von GitHub geprüft.
 
-Die Workflows verwenden GitHub-gehostete Ubuntu-24.04-Runner, Python 3.14 und feste Action-Commit-IDs. Ihr `GITHUB_TOKEN` besitzt ausschließlich `contents: read`; Checkout speichert keine Git-Zugangsdaten. Die Prüfungen verwenden simulierte UniFi-Daten und gemockte LDAP-Verbindungen. UniFi-/AD-Schlüssel oder Produktionsdateien werden dafür nicht benötigt. Der Vorbereitungsrunner benötigt Internetzugang für geprüfte Abhängigkeiten, Browser und Basisimage; das exportierte Anwendungsimage kann anschließend im internen Netz importiert werden.
+Die Workflows verwenden GitHub-gehostete Ubuntu-24.04-Runner, Python 3.14, Node.js 24 und feste Action-Commit-IDs. Die standardmäßig aktiven Jobs besitzen ausschließlich `contents: read`; Checkout speichert keine Git-Zugangsdaten. Die Prüfungen verwenden simulierte UniFi-Daten und gemockte LDAP-Verbindungen. UniFi-/AD-Schlüssel oder Produktionsdateien werden dafür nicht benötigt. Der Vorbereitungsrunner benötigt Internetzugang für geprüfte Abhängigkeiten, Scanner, Browser und Basisimage; das exportierte Anwendungsimage kann anschließend im internen Netz importiert werden.
 
-[Dependabot](.github/dependabot.yml) schlägt wöchentlich Updates für Python, Docker und Actions vor. Produktions- und Testabhängigkeiten sind zusätzlich in `requirements.lock` und `requirements-dev.lock` mit Release-Hashes fixiert. Die CI prüft Direktpins gegen beide Locks und installiert mit `--require-hashes`. Nach einem freigegebenen Python-Update in einer geprüften Python-3.14-Umgebung die aktualisierten Direktpins installieren und beide Locks regenerieren:
+Optional enthält der Security-Workflow CodeQL für Python und JavaScript mit `security-extended`. Nach Einrichtung des [erweiterten CodeQL-Setups](https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/configuring-advanced-setup-for-code-scanning) die Repository-Variable `ENABLE_CODEQL=true` unter **Settings → Secrets and variables → Actions → Variables** setzen. Für private Repositories muss CodeQL im verwendeten GitHub-Tarif verfügbar sein. Dieser gesonderte Job benötigt zusätzlich `actions: read` und `security-events: write`, um Ergebnisse an GitHubs Code-Scanning-Oberfläche zu melden.
+
+[Dependabot](.github/dependabot.yml) schlägt montags um 06:00 Uhr Europe/Berlin Updates für Python, npm, Docker und Actions vor. Kleine PR-Limits und Gruppen für zusammengehörige Updates begrenzen die Anzahl offener PRs; Updates werden nicht automatisch gemergt. Produktions- und Python-Entwicklungsabhängigkeiten sind zusätzlich in `requirements.lock` und `requirements-dev.lock` mit Release-Hashes fixiert. Die CI prüft Direktpins gegen beide Locks und installiert mit `--require-hashes`. Nach einem freigegebenen Python-Update in einer geprüften Python-3.14-Umgebung die aktualisierten Direktpins installieren und beide Locks regenerieren:
 
 ```powershell
 .venv\Scripts\python -m pip install -r requirements-dev.txt
@@ -165,7 +175,11 @@ Die Workflows verwenden GitHub-gehostete Ubuntu-24.04-Runner, Python 3.14 und fe
 .venv\Scripts\python tools/check_requirements.py
 ```
 
-Die ersten beiden Badges zeigen GitHubs dynamischen [Workflow-Status](https://docs.github.com/en/actions/how-tos/monitor-workflows/add-a-status-badge) für [BartelLuis/UniBatch](https://github.com/BartelLuis/UniBatch). Nach dem Push der Workflow-Dateien liefern die ersten GitHub-Läufe deren Status. Python- und API-Badges liegen lokal und bleiben offline lesbar. Für einen Fork die Workflow-Badges auf das neue Repository umstellen:
+Die npm-Werkzeuge sind ausschließlich Entwicklungsabhängigkeiten; `npm ci --ignore-scripts` installiert anhand der Integritätswerte in `package-lock.json`. Das Anwendungsimage braucht weder Node.js noch npm. Actionlint, Hadolint und Gitleaks sind in [.github/ci-tools.json](.github/ci-tools.json) mit Version, offizieller Release-URL und SHA-256 für Linux/Windows x86-64 fixiert. [Der Installer](tools/install_ci_tools.py) prüft Downloads vor dem Entpacken und installiert nur die erwartete Binärdatei unter `artifacts/ci-tools`. Neue CLI-Versionen und deren offizielle Release-Prüfsummen gemeinsam im Manifest aktualisieren; dieses eigene Manifest wird nicht automatisch von Dependabot geändert.
+
+[Die Gitleaks-Konfiguration](.gitleaks.toml) übernimmt sämtliche Standardregeln. Nur fünf bekannte synthetische Demo-/Testwerte sind zusammen mit ihren jeweiligen Dateipfaden ausgenommen; die Dateien selbst bleiben vollständig im Scan. Inline-Kommentare `gitleaks:allow` werden in der CI ignoriert.
+
+Die sechs Workflow-Badges zeigen GitHubs dynamischen [Workflow-Status](https://docs.github.com/en/actions/how-tos/monitor-workflows/add-a-status-badge) für [BartelLuis/UniBatch](https://github.com/BartelLuis/UniBatch). Nach dem Push der Workflow-Dateien liefern die ersten GitHub-Läufe deren Status. Python- und API-Badges liegen lokal und bleiben offline lesbar. Für einen Fork die Workflow-Badges auf das neue Repository umstellen:
 
 ```powershell
 .venv\Scripts\python tools/configure_badges.py OWNER/REPO
@@ -178,10 +192,30 @@ Das Kommando ändert ausschließlich den markierten Badge-Block der README und a
 ```powershell
 .venv\Scripts\python -m pip install -r requirements-dev.txt
 .venv\Scripts\python -m pytest -q
+.venv\Scripts\python -m ruff check app tools tests
+.venv\Scripts\python tools/check_requirements.py
+.venv\Scripts\python tools/check_dependabot.py
+npm ci --ignore-scripts
+npm run lint:js
+npm run lint:docs
 node --check app/static/app.js
 node --check app/static/dialog.js
 docker compose config --quiet
 ```
+
+Die zusätzlichen CLI-Prüfungen auf Windows x86-64:
+
+```powershell
+.venv\Scripts\python tools/install_ci_tools.py actionlint hadolint gitleaks
+& artifacts/ci-tools/actionlint.exe (Get-ChildItem .github/workflows/*.yml).FullName
+& artifacts/ci-tools/hadolint.exe --failure-threshold warning Dockerfile
+.venv\Scripts\python -m bandit -r app tools
+.venv\Scripts\python -m pip_audit --require-hashes --disable-pip --strict -r requirements.lock
+npm audit --audit-level=moderate
+& artifacts/ci-tools/gitleaks.exe git . --log-opts="--all --full-history --diff-merges=separate" --config=.gitleaks.toml --redact=100 --ignore-gitleaks-allow
+```
+
+Der letzte Befehl benötigt einen Git-Checkout mit Historie. In einem heruntergeladenen Quellarchiv stattdessen gezielt die freizugebenden Quelldateien per `gitleaks dir` prüfen; lokale Secret- und Datenverzeichnisse gehören nicht ins Repository.
 
 Bei laufender Simulation:
 

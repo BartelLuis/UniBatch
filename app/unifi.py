@@ -274,7 +274,7 @@ class DemoClient:
             server_id TEXT NOT NULL,site_id TEXT NOT NULL,kind TEXT NOT NULL,
             id TEXT NOT NULL,payload TEXT NOT NULL,
             PRIMARY KEY(server_id,site_id,kind,id))''')
-        self._wifi_template = default_wifi('Demo', passphrase='simulation-passphrase-2026')
+        self._wifi_template = default_wifi('Demo', passphrase='simulation-passphrase-2026')  # nosec B106 # This credential exists only in the offline simulator, never a live controller.
         self._site_ids = {server['id']: {site['id'] for site in self._sites(server['id'])} for server in DEMO_SERVERS}
 
     def _sites(self, server_id):

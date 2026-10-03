@@ -1,14 +1,11 @@
 import asyncio
 import hashlib
 import hmac
-import ipaddress
 import json
 import re
 import secrets
 import time
 from pathlib import Path
-from types import SimpleNamespace
-from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
 from fastapi import HTTPException

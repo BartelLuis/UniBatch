@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 import time
-from http.cookies import SimpleCookie
+from http.cookies import CookieError, SimpleCookie
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -192,7 +192,7 @@ class RadiusClient:
                 cookie = SimpleCookie()
                 try:
                     cookie.load(header)
-                except Exception:
+                except CookieError:
                     continue
                 if 'TOKEN' in cookie:
                     token = cookie['TOKEN'].value

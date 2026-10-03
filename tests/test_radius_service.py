@@ -2,7 +2,7 @@
 import pytest
 from fastapi import HTTPException
 
-from test_workflow import env, signed
+from test_workflow import env as env, signed
 
 
 def test_radius_account_secret_preserved_encrypted_and_never_returned(env):

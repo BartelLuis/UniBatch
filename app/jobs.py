@@ -1,13 +1,12 @@
 """Durable, approval-gated WLAN/VLAN/RADIUS planning and bounded rollout execution."""
 import asyncio
-import json
 import hashlib
 import re
 import secrets
 import time
 
 from fastapi import HTTPException
-from app.contract import create_defaults, deep_merge, redact, validate_patch, write_payload
+from app.contract import create_defaults, deep_merge, redact, write_payload
 
 RESOURCES = {'wifi': 'wifi/broadcasts', 'network': 'networks', 'radius': 'radius/configurations'}
 ACTIVE = ('planning', 'planned', 'approved', 'queued', 'running', 'paused')

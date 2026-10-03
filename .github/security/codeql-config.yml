@@ -1,0 +1,8 @@
+name: UniFi Batch application security
+
+queries:
+  - uses: security-extended
+
+paths:
+  - app
+  - tools

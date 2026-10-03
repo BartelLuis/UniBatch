@@ -27,6 +27,8 @@ def test_badge_update_preserves_readme_and_is_idempotent():
     assert result.startswith('# Tool\n\n') and result.endswith('\n\nBehördennetz\n')
     assert 'https://github.com/agency/unifi-batch/actions/workflows/ci.yml/badge.svg' in result
     assert 'https://github.com/agency/unifi-batch/actions/workflows/docker.yml/badge.svg' in result
+    for workflow in ('lint', 'security', 'secrets', 'dependabot'):
+        assert f'https://github.com/agency/unifi-batch/actions/workflows/{workflow}.yml/badge.svg' in result
     assert 'docs/badges/python.svg' in result and 'docs/badges/local-api.svg' in result
     assert update_readme(result, 'agency/unifi-batch') == result
 

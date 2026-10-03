@@ -152,7 +152,7 @@ def create_app(config=None):
         user = ctx.auth.identity(request,'view')
         servers = ctx.servers(user)
         where,args=job_where(user)
-        states={r['state']:r['n'] for r in ctx.store.query('SELECT state,COUNT(*) n FROM batch_jobs'+where+' GROUP BY state',args)}
+        states={r['state']:r['n'] for r in ctx.store.query('SELECT state,COUNT(*) n FROM batch_jobs'+where+' GROUP BY state',args)}  # nosec B608 # job_where supplies fixed SQL and placeholders; scope values are bound.
         return {'servers':len(servers),'sites':sum(s['site_count'] for s in servers),'jobs':sum(states.values()),
                 'states':states,'writes':ctx.config.writes,'demo':ctx.config.demo,'online_servers':sum(s['status']=='online' for s in servers)}
 
@@ -197,7 +197,7 @@ def create_app(config=None):
         user=ctx.auth.identity(request,'servers.manage')
         ctx.auth.require_scope(user,server_id)
         ctx.server(server_id,enabled=False)
-        for row in ctx.store.query('SELECT blob FROM batch_jobs WHERE state IN ('+','.join('?' for _ in ACTIVE)+')',ACTIVE):
+        for row in ctx.store.query('SELECT blob FROM batch_jobs WHERE state IN ('+','.join('?' for _ in ACTIVE)+')',ACTIVE):  # nosec B608 # Only placeholder count is generated; ACTIVE values are bound.
             if server_id in {t['server'] for t in ctx.decrypt(row['blob'])['targets']}:
                 raise HTTPException(409,'Server ist noch in einem offenen Auftrag enthalten')
         with ctx.store.transaction():
@@ -271,8 +271,8 @@ def create_app(config=None):
         if tag:
             terms.append('EXISTS (SELECT 1 FROM json_each(app_sites.tags) WHERE json_each.value=?)');args.append(tag)
         where=' WHERE '+' AND '.join(terms) if terms else ''
-        total=ctx.store.one('SELECT COUNT(*) n FROM app_sites'+where,args)['n']
-        rows=ctx.store.query('SELECT * FROM app_sites'+where+' ORDER BY name,server,site LIMIT ? OFFSET ?',args+[limit,offset])
+        total=ctx.store.one('SELECT COUNT(*) n FROM app_sites'+where,args)['n']  # nosec B608 # Filter clauses are fixed SQL; all request values are bound.
+        rows=ctx.store.query('SELECT * FROM app_sites'+where+' ORDER BY name,server,site LIMIT ? OFFSET ?',args+[limit,offset])  # nosec B608 # Filter clauses are fixed SQL; request values and pagination are bound.
         return {'items':[r|{'tags':json.loads(r['tags'])} for r in rows],'total':total,'offset':offset,'limit':limit}
 
     @app.patch('/api/inventory/{server_id}/{site_id}')
@@ -341,7 +341,7 @@ def create_app(config=None):
             return '',[]
         if not user['scope']:
             return ' WHERE 0',[]
-        return ' WHERE NOT EXISTS (SELECT 1 FROM batch_scope s WHERE s.job=batch_jobs.id AND s.server NOT IN ('+','.join('?' for _ in user['scope'])+'))',user['scope']
+        return ' WHERE NOT EXISTS (SELECT 1 FROM batch_scope s WHERE s.job=batch_jobs.id AND s.server NOT IN ('+','.join('?' for _ in user['scope'])+'))',user['scope']  # nosec B608 # Only placeholder count is generated; scope values are bound by callers.
 
     @app.post('/api/jobs')
     async def plan(data:Plan,request:Request):
@@ -375,8 +375,8 @@ def create_app(config=None):
     async def jobs(request:Request,offset:int=Query(0,ge=0),limit:int=Query(25,ge=1,le=100)):
         user=ctx.auth.identity(request,'view')
         where,args=job_where(user)
-        total=ctx.store.one('SELECT COUNT(*) n FROM batch_jobs'+where,args)['n']
-        rows=ctx.store.query('SELECT * FROM batch_jobs'+where+' ORDER BY created DESC LIMIT ? OFFSET ?',args+[limit,offset])
+        total=ctx.store.one('SELECT COUNT(*) n FROM batch_jobs'+where,args)['n']  # nosec B608 # job_where supplies fixed SQL and placeholders; scope values are bound.
+        rows=ctx.store.query('SELECT * FROM batch_jobs'+where+' ORDER BY created DESC LIMIT ? OFFSET ?',args+[limit,offset])  # nosec B608 # Fixed SQL and placeholders; scope values and pagination are bound.
         return {'items':[summary(ctx,r) for r in rows],'total':total,'offset':offset,'limit':limit}
 
     @app.get('/api/jobs/{job_id}')
@@ -467,7 +467,8 @@ def create_app(config=None):
         user=ctx.auth.identity(request,'audit.export')
         if '*' not in user['scope']:
             raise HTTPException(403,'Das zentrale Audit-Protokoll erfordert einen globalen Berechtigungsbereich')
-        import hashlib,hmac
+        import hashlib
+        import hmac
         previous='0'*64;count=0
         for row in ctx.store.query('SELECT * FROM app_audit ORDER BY seq'):
             encoded=json.dumps([row['timestamp'],row['actor'],row['action'],row['detail'],previous],separators=(',',':')).encode()

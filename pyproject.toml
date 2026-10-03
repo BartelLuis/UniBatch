@@ -1,0 +1,9 @@
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+extend-exclude = [".venv", "artifacts"]
+
+[tool.ruff.lint]
+# Syntax, name resolution, unsafe defaults/assertions and loop-variable binding.
+# Keep formatting and broad modernization outside the correctness check.
+select = ["E4", "E9", "F", "B006", "B011", "B023", "UP003", "UP008"]

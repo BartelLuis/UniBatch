@@ -1,0 +1,29 @@
+title = "UniBatch secrets: defaults with exact synthetic fixture exceptions"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+  # Public simulation value, used only by DemoClient. No entire file is skipped.
+  [[rules.allowlists]]
+  description = "Known synthetic RADIUS secret in the simulator"
+  condition = "AND"
+  regexTarget = "secret"
+  paths = ['''(^|[/\\])app[/\\]unifi\.py$''']
+  regexes = ['''^simulation-radius-secret-2026$''']
+
+  [[rules.allowlists]]
+  description = "Three fixed RADIUS secrets in isolated workflow tests"
+  condition = "AND"
+  regexTarget = "secret"
+  paths = ['''(^|[/\\])tests[/\\]test_workflow_radius\.py$''']
+  regexes = ['''^(radius-acct-secret-2026|rotated-radius-secret-2026|fresh-radius-secret-2026)$''']
+
+  [[rules.allowlists]]
+  description = "Synthetic scoped account password in isolated workflow tests"
+  condition = "AND"
+  regexTarget = "secret"
+  paths = ['''(^|[/\\])tests[/\\]test_workflow\.py$''']
+  regexes = ['''^limited-pass-2026$''']

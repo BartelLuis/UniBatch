@@ -465,7 +465,7 @@ class AuthService:
                 self._grant(self.user(actor['name']), values.get('role', current['role']), json.loads(values.get('scope', current['scope'])))
                 self._assert_admin_remains(current | values)
                 fields = ','.join(f'{key}=?' for key in values)
-                self.store.execute(f'UPDATE auth_users SET {fields} WHERE name=?', tuple(values.values()) + (name,))
+                self.store.execute(f'UPDATE auth_users SET {fields} WHERE name=?', tuple(values.values()) + (name,))  # nosec B608 # UserEdit forbids extra keys; all values are bound parameters.
                 self._revoke(name)
                 self.ctx.audit(actor['name'], 'user_updated', name + ':' + ','.join(sorted(values)))
             return self.public_user(self._user(name))
@@ -515,7 +515,7 @@ class AuthService:
                 if 'permissions' in values:
                     self._assert_admin_remains(replacement_role=(role_id, permissions))
                 fields = ','.join(f'{key}=?' for key in values)
-                self.store.execute(f'UPDATE auth_roles SET {fields} WHERE id=?', tuple(values.values()) + (role_id,))
+                self.store.execute(f'UPDATE auth_roles SET {fields} WHERE id=?', tuple(values.values()) + (role_id,))  # nosec B608 # RoleEdit forbids extra keys; all values are bound parameters.
                 for user in self.store.query('SELECT name FROM auth_users WHERE role=?', (role_id,)):
                     self._revoke(user['name'])
                 self.ctx.audit(actor['name'], 'role_updated', role_id)

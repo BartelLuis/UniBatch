@@ -1,3 +1,8 @@
 -r requirements.txt
 pytest==9.1.1
 playwright==1.63.0
+ruff==0.16.10
+PyYAML==6.0.3
+bandit==1.9.4
+pip-audit==2.10.1
+tzdata==2026.5

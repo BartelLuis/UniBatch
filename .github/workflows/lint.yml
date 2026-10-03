@@ -1,0 +1,113 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python correctness (Ruff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements*.txt
+            requirements*.lock
+
+      - name: Verify manifests and locks agree
+        run: python tools/check_requirements.py
+
+      - name: Install hash-locked development tools
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+
+      - name: Check Python correctness
+        run: python -m ruff check app tools tests --output-format github
+
+  javascript:
+    name: JavaScript correctness (ESLint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install locked development tools
+        run: npm ci --ignore-scripts
+
+      - name: Check browser scripts and configuration
+        run: npm run lint:js
+
+  markdown:
+    name: Markdown documentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install locked development tools
+        run: npm ci --ignore-scripts
+
+      - name: Check README and operational documentation
+        run: npm run lint:docs
+
+  infrastructure:
+    name: GitHub Actions and Dockerfile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install checksum-verified infrastructure tools
+        run: python tools/install_ci_tools.py actionlint hadolint
+
+      - name: Check workflow syntax and expressions
+        run: artifacts/ci-tools/actionlint -color
+
+      - name: Check Dockerfile
+        run: artifacts/ci-tools/hadolint --failure-threshold warning Dockerfile

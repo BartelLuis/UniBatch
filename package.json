@@ -1,0 +1,18 @@
+{
+  "name": "unifi-batch-quality-tools",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "lint:js": "eslint app/static/*.js eslint.config.mjs tools/*.mjs --max-warnings 0",
+    "lint:docs": "node tools/lint_docs.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "markdownlint": "0.41.1"
+  }
+}

@@ -153,7 +153,7 @@
         // Keep destructive actions behind an explicit choice.
         cancel.focus({ preventScroll: true });
       }
-    } catch (error) {
+    } catch {
       // A detached page or unsupported modal must never authorize an action.
       finish(cancelledValue);
     }

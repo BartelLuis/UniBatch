@@ -4,7 +4,7 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from test_workflow import env, run, signed, wait_job
+from test_workflow import env as env, run, signed, wait_job
 
 
 TARGETS = [
